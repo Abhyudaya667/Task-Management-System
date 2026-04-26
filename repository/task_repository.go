@@ -1,0 +1,167 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"task-management-system/dto"
+	"task-management-system/models"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+var ErrNotFound = errors.New("task not found")
+
+type TaskRepository interface {
+	Create(ctx context.Context, task *models.Task) error
+	FindByID(ctx context.Context, id primitive.ObjectID) (*models.Task, error)
+	FindAll(ctx context.Context, userID primitive.ObjectID, params dto.TaskFilterParams) ([]models.Task, int64, error)
+	Update(ctx context.Context, id primitive.ObjectID, fields bson.M) error
+	SoftDelete(ctx context.Context, id primitive.ObjectID) error
+}
+
+type taskRepository struct {
+	col *mongo.Collection
+}
+
+func NewTaskRepository(db *mongo.Database) TaskRepository {
+	return &taskRepository{col: db.Collection("tasks")}
+}
+
+// ─── Create ──────────────────────────────────────────────────────────────────
+
+func (r *taskRepository) Create(ctx context.Context, task *models.Task) error {
+	task.ID = primitive.NewObjectID()
+	task.CreatedAt = time.Now()
+	task.UpdatedAt = time.Now()
+	task.IsDeleted = false
+
+	_, err := r.col.InsertOne(ctx, task)
+	return err
+}
+
+// ─── FindByID ────────────────────────────────────────────────────────────────
+
+func (r *taskRepository) FindByID(ctx context.Context, id primitive.ObjectID) (*models.Task, error) {
+	filter := bson.M{
+		"_id":        id,
+		"is_deleted": bson.M{"$ne": true},
+	}
+
+	var task models.Task
+	err := r.col.FindOne(ctx, filter).Decode(&task)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, ErrNotFound
+	}
+	return &task, err
+}
+
+// ─── FindAll ─────────────────────────────────────────────────────────────────
+
+// FindAll returns paginated tasks where the user is the assignee OR assigned_by.
+// Filters: status, priority, type, and a case-insensitive title search.
+func (r *taskRepository) FindAll(
+	ctx context.Context,
+	userID primitive.ObjectID,
+	params dto.TaskFilterParams,
+) ([]models.Task, int64, error) {
+
+	filter := bson.M{
+		"is_deleted": bson.M{"$ne": true},
+		"$or": bson.A{
+			bson.M{"assignee":    userID},
+			bson.M{"assigned_by": userID},
+		},
+	}
+
+	if params.Status != "" {
+		filter["status"] = params.Status
+	}
+	if params.Priority != "" {
+		filter["priority"] = params.Priority
+	}
+	if params.Type != "" {
+		filter["type"] = params.Type
+	}
+	if params.Search != "" {
+		// Case-insensitive prefix match on title
+		filter["title"] = bson.M{"$regex": params.Search, "$options": "i"}
+	}
+
+	// Total count (for pagination metadata)
+	total, err := r.col.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	skip := int64((params.Page - 1) * params.PageSize)
+	limit := int64(params.PageSize)
+
+	opts := options.Find().
+		SetSort(bson.D{{Key: "created_at", Value: -1}}).
+		SetSkip(skip).
+		SetLimit(limit)
+
+	cursor, err := r.col.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var tasks []models.Task
+	if err := cursor.All(ctx, &tasks); err != nil {
+		return nil, 0, err
+	}
+
+	return tasks, total, nil
+}
+
+// ─── Update ──────────────────────────────────────────────────────────────────
+
+// Update applies a bson.M patch to a non-deleted task.
+// The service layer is responsible for building the $set map.
+func (r *taskRepository) Update(ctx context.Context, id primitive.ObjectID, fields bson.M) error {
+	filter := bson.M{
+		"_id":        id,
+		"is_deleted": bson.M{"$ne": true},
+	}
+
+	fields["updated_at"] = time.Now()
+
+	res, err := r.col.UpdateOne(ctx, filter, bson.M{"$set": fields})
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ─── SoftDelete ──────────────────────────────────────────────────────────────
+
+func (r *taskRepository) SoftDelete(ctx context.Context, id primitive.ObjectID) error {
+	filter := bson.M{
+		"_id":        id,
+		"is_deleted": bson.M{"$ne": true},
+	}
+
+	res, err := r.col.UpdateOne(ctx, filter, bson.M{
+		"$set": bson.M{
+			"is_deleted": true,
+			"updated_at": time.Now(),
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
