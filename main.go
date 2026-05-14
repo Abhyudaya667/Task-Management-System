@@ -60,8 +60,9 @@ func main() {
 	taskRepo := repository.NewTaskRepository(config.DB)
 	userRepo := repository.NewUserRepository(config.DB)
 	taskSvc  := service.NewTaskService(taskRepo, userRepo)
+	userSvc := service.NewUserService(userRepo)
 	taskCtrl := controllers.NewTaskController(taskSvc)
-
+	userCtrl := controllers.NewUserController(userSvc)
 	// ── Router ────────────────────────────────────────────────────────────────
 	r := gin.Default()
 
@@ -90,6 +91,7 @@ func main() {
 		taskRoutes.PATCH("/:id", taskCtrl.UpdateTask)
 		taskRoutes.DELETE("/:id", taskCtrl.DeleteTask)
 	}
+	r.GET("/users/search",middleware.AuthMiddleware(),userCtrl.SearchEmailsByText)
 
 	r.Run(":8080")
 }
