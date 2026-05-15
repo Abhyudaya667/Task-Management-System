@@ -59,8 +59,10 @@ func main() {
 	// ── Dependency injection ──────────────────────────────────────────────────
 	taskRepo := repository.NewTaskRepository(config.DB)
 	userRepo := repository.NewUserRepository(config.DB)
+	labelRepo := repository.NewLabelRepository(config.DB)
 	taskSvc  := service.NewTaskService(taskRepo, userRepo)
-	userSvc := service.NewUserService(userRepo)
+	userSvc := service.NewUserService(userRepo,labelRepo)
+
 	taskCtrl := controllers.NewTaskController(taskSvc)
 	userCtrl := controllers.NewUserController(userSvc)
 	// ── Router ────────────────────────────────────────────────────────────────
@@ -92,6 +94,11 @@ func main() {
 		taskRoutes.DELETE("/:id", taskCtrl.DeleteTask)
 	}
 	r.GET("/users/search",middleware.AuthMiddleware(),userCtrl.SearchEmailsByText)
-
+	labelRoutes := r.Group("/labels")
+	labelRoutes.Use(middleware.AuthMiddleware())
+	{
+		labelRoutes.GET("/",  userCtrl.SearchLabels)   
+		labelRoutes.POST("/", userCtrl.AddNewLabel)   
+	}
 	r.Run(":8080")
 }
