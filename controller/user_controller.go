@@ -18,7 +18,7 @@ func NewUserController(svc service.UserService) *UserController{
 	return &UserController{usersvc: svc}
 }
 
-func (uc *UserController)SearchEmailsByText(c *gin.Context){
+func (uc *UserController)SearchUserNamesByText(c *gin.Context){
 	requesterID, ok := getRequesterID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -31,7 +31,7 @@ func (uc *UserController)SearchEmailsByText(c *gin.Context){
 		})
 		return
 	}
-	emails,err := uc.usersvc.SearchEmails(c.Request.Context(),requesterID,text)
+	emails,err := uc.usersvc.SearchUserNames(c.Request.Context(),requesterID,text)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),

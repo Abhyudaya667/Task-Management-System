@@ -9,7 +9,7 @@ import (
 )
 
 type UserService interface {
-	SearchEmails(ctx context.Context,requesterid primitive.ObjectID,text string)([]string,error)
+	SearchUserNames(ctx context.Context,requesterid primitive.ObjectID,text string)([]string,error)
 	AddLabel(ctx context.Context, requesterID primitive.ObjectID, label string) (*models.Label, error)
 	SearchLabels(ctx context.Context, text string) ([]models.Label, error)
 }
@@ -23,12 +23,12 @@ func NewUserService(userRepo repository.UserRepository, labelRepo repository.Lab
 	return &userService{userRepo: userRepo, labelRepo: labelRepo}
 }
 
-func (s *userService) SearchEmails(ctx context.Context,requesterid primitive.ObjectID,text string)([]string,error){
-	emails ,err := s.userRepo.FilterByEmail(ctx,text)
+func (s *userService) SearchUserNames(ctx context.Context,requesterid primitive.ObjectID,text string)([]string,error){
+	usernames ,err := s.userRepo.FilterByUserName(ctx,text)
 	if err!=nil {
 		return nil,err
 	}
-	return emails,err
+	return usernames,err
 }
 
 func (s *userService) AddLabel(ctx context.Context, requesterID primitive.ObjectID, label string) (*models.Label, error) {

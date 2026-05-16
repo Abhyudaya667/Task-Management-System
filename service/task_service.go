@@ -19,7 +19,7 @@ var (
 	ErrTaskNotFound     = errors.New("task not found")
 	ErrUnauthorized     = errors.New("you do not have permission to perform this action")
 	ErrInvalidID        = errors.New("invalid id format")
-	ErrAssigneeNotFound = errors.New("no user found with that assignee email")
+	ErrAssigneeNotFound = errors.New("no user found with the UserName")
 )
 
 // ─── Interface ───────────────────────────────────────────────────────────────
@@ -49,14 +49,14 @@ func toUserSummary(u *models.User) *dto.UserSummary {
 	if u == nil {
 		return nil
 	}
-	return &dto.UserSummary{ID: u.ID, Name: u.Name, Email: u.Email}
+	return &dto.UserSummary{ID: u.ID, Name: u.UserName, Email: u.Email}
 }
 
 // resolveAssigneeEmail looks up a user by email and returns their ObjectID.
 // Returns ErrAssigneeNotFound (mapped to 404 by the controller) when the
 // email does not match any registered user.
-func (s *taskService) resolveAssigneeEmail(ctx context.Context, email string) (primitive.ObjectID, error) {
-	user, err := s.userRepo.FindByEmail(ctx, email)
+func (s *taskService) resolveAssigneeUserName(ctx context.Context, username string) (primitive.ObjectID, error) {
+	user, err := s.userRepo.FindByUserName(ctx, username)
 	if err != nil {
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return primitive.NilObjectID, ErrAssigneeNotFound
@@ -136,7 +136,7 @@ func canAccess(task *models.Task, userID primitive.ObjectID) bool {
 // The caller automatically becomes assigned_by.
 func (s *taskService) CreateTask(ctx context.Context, requesterID primitive.ObjectID, req dto.CreateTaskRequest) (*dto.TaskDetail, error) {
 	// Resolve assignee email → ObjectID
-	assigneeOID, err := s.resolveAssigneeEmail(ctx, req.AssigneeEmail)
+	assigneeOID, err := s.resolveAssigneeUserName(ctx, req.AssigneeUserName)
 	if err != nil {
 		return nil, err // ErrAssigneeNotFound or DB error
 	}
@@ -278,11 +278,12 @@ func (s *taskService) UpdateTask(ctx context.Context, requesterID primitive.Obje
 	}
 
 	// Resolve the new assignee by email if provided
-	if req.AssigneeEmail != nil {
-		newAssigneeOID, err := s.resolveAssigneeEmail(ctx, *req.AssigneeEmail)
+	if req.AssigneeUserName != "" {
+		newAssigneeOID, err := s.resolveAssigneeUserName(ctx, req.AssigneeUserName)
 		if err != nil {
-			return nil, err // ErrAssigneeNotFound or DB error
+			return nil, err
 		}
+
 		patch["assignee"] = newAssigneeOID
 	}
 

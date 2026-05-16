@@ -1,9 +1,9 @@
-
 package repository
 
 import (
 	"context"
 	"errors"
+	"log"
 	"task-management-system/models"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -17,39 +17,74 @@ var ErrUserNotFound = errors.New("user not found")
 type UserRepository interface {
 	FindByID(ctx context.Context, id primitive.ObjectID) (*models.User, error)
 	FindByIDs(ctx context.Context, ids []primitive.ObjectID) (map[primitive.ObjectID]*models.User, error)
-	FindByEmail(ctx context.Context, email string) (*models.User, error)
-	FilterByEmail(ctx context.Context, text string)([]string,error)
+	FindByUserName(ctx context.Context, username string) (*models.User, error)
+	FilterByUserName(ctx context.Context, text string) ([]string, error)
 }
 
 type userRepository struct {
 	col *mongo.Collection
 }
+func createIndexes(col *mongo.Collection) error {
+	ctx := context.Background()
+
+	indexModel := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "username", Value: 1},
+		},
+		Options: options.Index().
+			SetUnique(true).
+			SetCollation(&options.Collation{
+				Locale:   "en",
+				Strength: 2,
+			}),
+	}
+
+	_, err := col.Indexes().CreateOne(ctx, indexModel)
+	if err != nil {
+		log.Println("failed to create username index:", err)
+		return err
+	}
+	return nil
+}
 
 func NewUserRepository(db *mongo.Database) UserRepository {
-	return &userRepository{col: db.Collection("users")}
-}
-func (r *userRepository) FilterByEmail(ctx context.Context,text string) ([]string,error){
-	filter := bson.M{
-	"email": bson.M{
-		"$regex": text,
-		"$options": "i", 
-	},
+	col := db.Collection("users")
+
+	createIndexes(col)
+
+	return &userRepository{
+		col: col,
 	}
-	opts := options.Find().SetLimit(5)
+}
+func (r *userRepository) FilterByUserName(ctx context.Context,text string) ([]string,error){
+	filter := bson.M{
+		"username": bson.M{
+			"$regex":   "^" + text,
+			"$options": "i",
+		},
+	}
+
+	opts := options.Find().
+		SetLimit(5).
+		SetCollation(&options.Collation{
+			Locale:   "en",
+			Strength: 2,
+		})
+
 
 	cursor, err := r.col.Find(ctx, filter,opts)
 	if err != nil{
 		return nil,err
 	}
-	emails := []string{}
+	usernames:=[]string{}
 	for cursor.Next(ctx) {
 		var u models.User
 		if err := cursor.Decode(&u); err != nil{
 			return nil,err
 		}
-		emails = append(emails, u.Email)
+		usernames = append(usernames, u.UserName)
 	}
-	return emails,cursor.Err()
+	return usernames,cursor.Err()
 }
 func (r *userRepository) FindByID(ctx context.Context, id primitive.ObjectID) (*models.User, error) {
 	var user models.User
@@ -62,9 +97,19 @@ func (r *userRepository) FindByID(ctx context.Context, id primitive.ObjectID) (*
 
 // FindByEmail looks up a single user by their email address.
 // Used during task create/update to resolve assignee_email → ObjectID.
-func (r *userRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+func (r *userRepository) FindByUserName(ctx context.Context, username string) (*models.User, error) {
 	var user models.User
-	err := r.col.FindOne(ctx, bson.M{"email": email}).Decode(&user)
+
+	opts := options.FindOne().SetCollation(&options.Collation{
+		Locale:   "en",
+		Strength: 2,
+	})
+
+	err := r.col.FindOne(
+		ctx,
+		bson.M{"username": username},
+		opts,
+	).Decode(&user)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, ErrUserNotFound
 	}

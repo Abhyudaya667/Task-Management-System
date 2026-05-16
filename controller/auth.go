@@ -31,9 +31,17 @@ func Register(c *gin.Context) {
 
 	// Check if email already exists
 	var existingUser models.User
-	err := collection.FindOne(ctx, bson.M{"email": user.Email}).Decode(&existingUser)
+	err := collection.FindOne(
+    ctx,
+    bson.M{
+        "$or": []bson.M{
+            {"email": user.Email},
+            {"username": user.UserName},
+        },
+    },
+	).Decode(&existingUser)
 	if err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Email already registered"})
+		c.JSON(http.StatusConflict, gin.H{"error": "Email or UserName already registered"})
 		return
 	}
 	if err != mongo.ErrNoDocuments {
@@ -60,7 +68,7 @@ func Register(c *gin.Context) {
 }
 func Login(c *gin.Context) {
 	var input struct {
-		Email    string `json:"email" binding:"required,email"`
+		UserName    string `json:"username" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
 
@@ -77,7 +85,7 @@ func Login(c *gin.Context) {
 
 	// Find user by email
 	var user models.User
-	err := collection.FindOne(ctx, bson.M{"email": input.Email}).Decode(&user)
+	err := collection.FindOne(ctx, bson.M{"username": input.UserName}).Decode(&user)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
