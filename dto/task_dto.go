@@ -19,7 +19,7 @@ type CreateTaskRequest struct {
 	Labels        []string  `json:"labels"`
 	Status        string    `json:"status"         binding:"omitempty,oneof=todo in-progress in-review done"`
 	Priority      string    `json:"priority"       binding:"required,oneof=low medium high critical"`
-	AssigneeEmail string    `json:"assignee_email" binding:"required,email"` // ← email, not ObjectID
+	AssigneeUserName string    `json:"assignee_username" binding:"required"`
 	StartDate     time.Time `json:"start_date"     binding:"required"`
 	DueDate       time.Time `json:"due_date"       binding:"required"`
 }
@@ -34,7 +34,7 @@ type UpdateTaskRequest struct {
 	Labels        []string   `json:"labels"`
 	Status        *string    `json:"status"         binding:"omitempty,oneof=todo in-progress in-review done"`
 	Priority      *string    `json:"priority"       binding:"omitempty,oneof=low medium high critical"`
-	AssigneeEmail *string    `json:"assignee_email" binding:"omitempty,email"` // ← email, not ObjectID
+	AssigneeUserName string    `json:"assignee_username" binding:"required"`
 	StartDate     *time.Time `json:"start_date"`
 	DueDate       *time.Time `json:"due_date"`
 }

@@ -1,43 +1,4 @@
-// package main
 
-// import (
-// 	"task-management-system/config"
-// 	controllers "task-management-system/controller"
-
-// 	"github.com/gin-gonic/gin"
-// 	"task-management-system/middleware"
-// )
-// func main() {
-// 	config.ConnectDB()
-
-// 	r := gin.Default()
-
-// 	// 🔹 Auth routes (public)
-// 	r.POST("/auth/register", controllers.Register)
-// 	r.POST("/auth/login", controllers.Login)
-
-// 	// 🔹 Logout route (protected)
-// 	r.POST("/auth/logout", middleware.AuthMiddleware(), controllers.Logout)
-
-// 	// 🔹 Optional: refresh route (no middleware, uses refresh cookie)
-// 	r.POST("/auth/refresh", controllers.RefreshAccessToken)
-
-// 	// 🔹 Protected task routes
-// 	taskRoutes := r.Group("/tasks")
-// 	taskRoutes.Use(middleware.AuthMiddleware())
-// 	{
-// 		taskRoutes.GET("/", func(c *gin.Context) {
-// 			userID, _ := c.Get("user_id")
-
-// 			c.JSON(200, gin.H{
-// 				"message": "Authorized",
-// 				"user_id": userID,
-// 			})
-// 		})
-// 	}
-
-// 	r.Run(":8080")
-// }
 package main
 
 import (
@@ -93,7 +54,7 @@ func main() {
 		taskRoutes.PATCH("/:id", taskCtrl.UpdateTask)
 		taskRoutes.DELETE("/:id", taskCtrl.DeleteTask)
 	}
-	r.GET("/users/search",middleware.AuthMiddleware(),userCtrl.SearchEmailsByText)
+	r.GET("/users/search",middleware.AuthMiddleware(),userCtrl.SearchUserNamesByText)
 	labelRoutes := r.Group("/labels")
 	labelRoutes.Use(middleware.AuthMiddleware())
 	{

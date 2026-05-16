@@ -53,8 +53,11 @@ func (r *labelRepository) CreateLabel(ctx context.Context, createdBy primitive.O
 
 func (r *labelRepository) SearchLabels(ctx context.Context, text string, limit int) ([]models.Label, error) {
 	filter := bson.M{
-		"label": bson.M{"$regex": text, "$options": "i"},
-	}
+	"label": bson.M{
+		"$regex":   "^" + text,
+		"$options": "i",
+	},
+}
 
 	opts := options.Find().SetLimit(int64(limit))
 	cursor, err := r.col.Find(ctx, filter, opts)
