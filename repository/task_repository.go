@@ -48,7 +48,7 @@ func (r *taskRepository) Create(ctx context.Context, task *models.Task) error {
 func (r *taskRepository) FindByID(ctx context.Context, id primitive.ObjectID) (*models.Task, error) {
 	filter := bson.M{
 		"_id":        id,
-		"is_deleted": bson.M{"$ne": true},
+		// "is_deleted": bson.M{"$ne": true},
 	}
 
 	var task models.Task
@@ -70,11 +70,16 @@ func (r *taskRepository) FindAll(
 ) ([]models.Task, int64, error) {
 
 	filter := bson.M{
-		"is_deleted": bson.M{"$ne": true},
-		"$or": bson.A{
-			bson.M{"assignee":    userID},
-			bson.M{"assigned_by": userID},
-		},
+	"$or": bson.A{
+		bson.M{"assignee": userID},
+		bson.M{"assigned_by": userID},
+	},
+	}
+
+	if params.Deleted {
+		filter["is_deleted"] = true
+	} else {
+		filter["is_deleted"] = bson.M{"$ne": true}
 	}
 
 	if params.Status != "" {
