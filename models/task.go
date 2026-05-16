@@ -16,13 +16,15 @@ const (
 	TaskTypeBug     TaskType = "bug"
 	TaskTypeFeature TaskType = "feature"
 
-	StatusPending    TaskStatus = "pending"
+	StatusToDo    TaskStatus = "todo"
 	StatusInProgress TaskStatus = "in-progress"
+	StatusInReview TaskStatus = "in-review"
 	StatusDone       TaskStatus = "done"
 
 	PriorityLow    TaskPriority = "low"
 	PriorityMedium TaskPriority = "medium"
 	PriorityHigh   TaskPriority = "high"
+	PriorityCritical TaskPriority = "critical"
 )
 
 // Task struct
