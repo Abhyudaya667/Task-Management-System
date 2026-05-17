@@ -21,6 +21,9 @@ type TaskRepository interface {
 	FindAll(ctx context.Context, userID primitive.ObjectID, params dto.TaskFilterParams) ([]models.Task, int64, error)
 	Update(ctx context.Context, id primitive.ObjectID, fields bson.M) error
 	SoftDelete(ctx context.Context, id primitive.ObjectID) error
+	// FindTasksDueForEscalation returns non-deleted, non-done tasks with the given
+	// priority whose priority_set_at is older than olderThan.
+	FindTasksDueForEscalation(ctx context.Context, priority models.TaskPriority, olderThan time.Time) ([]models.Task, error)
 }
 
 type taskRepository struct {
@@ -169,4 +172,30 @@ func (r *taskRepository) SoftDelete(ctx context.Context, id primitive.ObjectID) 
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ─── FindTasksDueForEscalation ────────────────────────────────────────────────
+
+// FindTasksDueForEscalation returns all active tasks (non-deleted, not done)
+// with the given priority whose priority_set_at is older than olderThan.
+// The escalation background job calls this for each escalatable priority level.
+func (r *taskRepository) FindTasksDueForEscalation(ctx context.Context, priority models.TaskPriority, olderThan time.Time) ([]models.Task, error) {
+	filter := bson.M{
+		"is_deleted":      bson.M{"$ne": true},
+		"status":          bson.M{"$ne": string(models.StatusDone)},
+		"priority":        string(priority),
+		"priority_set_at": bson.M{"$lt": olderThan},
+	}
+
+	cursor, err := r.col.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var tasks []models.Task
+	if err := cursor.All(ctx, &tasks); err != nil {
+		return nil, err
+	}
+	return tasks, nil
 }
