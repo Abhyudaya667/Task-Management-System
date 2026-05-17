@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"task-management-system/config"
 	controllers "task-management-system/controller"
 	"task-management-system/middleware"
@@ -23,6 +24,10 @@ func main() {
 	activityRepo := repository.NewActivityRepository(config.DB)
 	taskSvc := service.NewTaskService(taskRepo, userRepo, activityRepo)
 	userSvc := service.NewUserService(userRepo, labelRepo)
+
+	// ── Background services ───────────────────────────────────────────────────
+	escalationSvc := service.NewEscalationService(taskRepo, activityRepo)
+	escalationSvc.Start(context.Background())
 
 	taskCtrl := controllers.NewTaskController(taskSvc)
 	userCtrl := controllers.NewUserController(userSvc)

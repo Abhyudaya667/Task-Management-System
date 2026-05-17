@@ -9,6 +9,7 @@ import (
 	"task-management-system/dto"
 	"task-management-system/models"
 	"task-management-system/repository"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -158,17 +159,18 @@ func (s *taskService) CreateTask(ctx context.Context, requesterID primitive.Obje
 	}
 
 	task := &models.Task{
-		Title:       req.Title,
-		Summary:     req.Summary,
-		Description: req.Description,
-		Type:        models.TaskType(req.Type),
-		Labels:      labels,
-		Status:      status,
-		Priority:    models.TaskPriority(req.Priority),
-		Assignee:    assigneeOID,
-		AssignedBy:  requesterID,
-		StartDate:   req.StartDate,
-		DueDate:     req.DueDate,
+		Title:         req.Title,
+		Summary:       req.Summary,
+		Description:   req.Description,
+		Type:          models.TaskType(req.Type),
+		Labels:        labels,
+		Status:        status,
+		Priority:      models.TaskPriority(req.Priority),
+		PrioritySetAt: time.Now(), // anchor for the auto-escalation timer
+		Assignee:      assigneeOID,
+		AssignedBy:    requesterID,
+		StartDate:     req.StartDate,
+		DueDate:       req.DueDate,
 	}
 
 	if err := s.taskRepo.Create(ctx, task); err != nil {
@@ -302,6 +304,8 @@ func (s *taskService) UpdateTask(ctx context.Context, requesterID primitive.Obje
 		patch["priority"] = *req.Priority
 		if models.TaskPriority(*req.Priority) != task.Priority {
 			changes = append(changes, fmt.Sprintf("Priority changed from '%s' to '%s'", task.Priority, *req.Priority))
+			// Reset the escalation timer whenever the user manually changes priority.
+			patch["priority_set_at"] = time.Now()
 		}
 	}
 
