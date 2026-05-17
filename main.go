@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"os"
+	"strings"
 	"task-management-system/config"
 	controllers "task-management-system/controller"
 	"task-management-system/middleware"
 	"task-management-system/repository"
 	"task-management-system/service"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -33,6 +36,24 @@ func main() {
 	userCtrl := controllers.NewUserController(userSvc)
 	// ── Router ────────────────────────────────────────────────────────────────
 	r := gin.Default()
+
+	// ── CORS Middleware ───────────────────────────────────────────────────────
+	allowedOriginsStr := os.Getenv("CORS_ALLOWED_ORIGINS")
+	var allowedOrigins []string
+	if allowedOriginsStr != "" {
+		allowedOrigins = strings.Split(allowedOriginsStr, ",")
+		for i, o := range allowedOrigins {
+			allowedOrigins[i] = strings.TrimSpace(o)
+		}
+	} else {
+		allowedOrigins = []string{"*"}
+	}
+
+	configCors := cors.DefaultConfig()
+	configCors.AllowOrigins = allowedOrigins
+	configCors.AllowCredentials = true
+	configCors.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
+	r.Use(cors.New(configCors))
 
 	// 🔹 Auth routes (public)
 	r.POST("/auth/register", controllers.Register)
