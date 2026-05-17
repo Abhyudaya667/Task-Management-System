@@ -1,4 +1,3 @@
-
 package main
 
 import (
@@ -18,11 +17,12 @@ func main() {
 	config.ConnectDB()
 
 	// ── Dependency injection ──────────────────────────────────────────────────
-	taskRepo := repository.NewTaskRepository(config.DB)
-	userRepo := repository.NewUserRepository(config.DB)
-	labelRepo := repository.NewLabelRepository(config.DB)
-	taskSvc  := service.NewTaskService(taskRepo, userRepo)
-	userSvc := service.NewUserService(userRepo,labelRepo)
+	taskRepo     := repository.NewTaskRepository(config.DB)
+	userRepo     := repository.NewUserRepository(config.DB)
+	labelRepo    := repository.NewLabelRepository(config.DB)
+	activityRepo := repository.NewActivityRepository(config.DB)
+	taskSvc := service.NewTaskService(taskRepo, userRepo, activityRepo)
+	userSvc := service.NewUserService(userRepo, labelRepo)
 
 	taskCtrl := controllers.NewTaskController(taskSvc)
 	userCtrl := controllers.NewUserController(userSvc)
@@ -34,7 +34,7 @@ func main() {
 	r.POST("/auth/login", controllers.Login)
 
 	// 🔹 Protected auth routes
-	r.POST("/auth/logout",  middleware.AuthMiddleware(), controllers.Logout)
+	r.POST("/auth/logout", middleware.AuthMiddleware(), controllers.Logout)
 	r.POST("/auth/refresh", controllers.RefreshAccessToken)
 
 	// ── Protected task routes ─────────────────────────────────────────────────
@@ -48,18 +48,19 @@ func main() {
 	taskRoutes := r.Group("/tasks")
 	taskRoutes.Use(middleware.AuthMiddleware())
 	{
-		taskRoutes.POST("/",    taskCtrl.CreateTask)
-		taskRoutes.GET("/",     taskCtrl.ListTasks)
-		taskRoutes.GET("/:id",  taskCtrl.GetTask)
+		taskRoutes.POST("/", taskCtrl.CreateTask)
+		taskRoutes.GET("/", taskCtrl.ListTasks)
+		taskRoutes.GET("/:id", taskCtrl.GetTask)
 		taskRoutes.PATCH("/:id", taskCtrl.UpdateTask)
 		taskRoutes.DELETE("/:id", taskCtrl.DeleteTask)
+		taskRoutes.GET("/:id/activities", taskCtrl.GetTaskActivities)
 	}
-	r.GET("/users/search",middleware.AuthMiddleware(),userCtrl.SearchUserNamesByText)
+	r.GET("/users/search", middleware.AuthMiddleware(), userCtrl.SearchUserNamesByText)
 	labelRoutes := r.Group("/labels")
 	labelRoutes.Use(middleware.AuthMiddleware())
 	{
-		labelRoutes.GET("/",  userCtrl.SearchLabels)   
-		labelRoutes.POST("/", userCtrl.AddNewLabel)   
+		labelRoutes.GET("/", userCtrl.SearchLabels)
+		labelRoutes.POST("/", userCtrl.AddNewLabel)
 	}
 	r.Run(":8080")
 }

@@ -1,4 +1,3 @@
-
 package controllers
 
 import (
@@ -215,3 +214,30 @@ func (tc *TaskController) DeleteTask(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "task deleted successfully"})
 }
 
+// ─── GET /tasks/:id/activities ───────────────────────────────────────────────
+
+// GetTaskActivities returns the full activity history of a task.
+// Only the assignee or assigned_by may view; others receive 403.
+//
+// Response 200: { "data": []dto.ActivityResponse }
+func (tc *TaskController) GetTaskActivities(c *gin.Context) {
+	requesterID, ok := getRequesterID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	taskID, err := parseTaskID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
+		return
+	}
+
+	activities, err := tc.svc.GetTaskActivities(c.Request.Context(), requesterID, taskID)
+	if err != nil {
+		handleTaskError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": activities})
+}

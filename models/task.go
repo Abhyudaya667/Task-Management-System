@@ -34,10 +34,15 @@ type Task struct {
 	Summary     string             `bson:"summary" json:"summary"`
 	Description string             `bson:"description" json:"description"`
 
-	Type     TaskType   `bson:"type" json:"type"`
-	Labels   []string   `bson:"labels" json:"labels"`
-	Status   TaskStatus `bson:"status" json:"status"`
+	Type     TaskType     `bson:"type" json:"type"`
+	Labels   []string     `bson:"labels" json:"labels"`
+	Status   TaskStatus   `bson:"status" json:"status"`
 	Priority TaskPriority `bson:"priority" json:"priority"`
+
+	// PrioritySetAt records when the current priority was last assigned (manually
+	// or by the auto-escalator). The escalation job uses this to decide when to
+	// bump priority to the next level.
+	PrioritySetAt time.Time `bson:"priority_set_at" json:"priority_set_at"`
 
 	Assignee   primitive.ObjectID `bson:"assignee" json:"assignee"` // single user
 	AssignedBy primitive.ObjectID `bson:"assigned_by" json:"assigned_by"`
