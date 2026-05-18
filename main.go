@@ -57,6 +57,7 @@ func main() {
 
 	// 🔹 Auth routes (public)
 	r.POST("/auth/register", controllers.Register)
+	r.GET("/auth/verify-email", controllers.VerifyEmail)
 	r.POST("/auth/login", controllers.Login)
 
 	// 🔹 Protected auth routes

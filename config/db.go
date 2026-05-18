@@ -3,11 +3,11 @@ package config
 import (
 	"context"
 	"log"
-	"time"
 	"os"
-	"github.com/joho/godotenv"
+	"time"
 
-	// "go.mongodb.org/mongo-driver/bson"
+	"github.com/joho/godotenv"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -40,13 +40,18 @@ func ConnectDB() {
 	}
 
 	DB = client.Database("task_manager")
-	// collection := DB.Collection("users")
 
-	// user := bson.M{
-	// 	"name": "test",
-	// 	"email": "test@gmail.com",
-	// }
+	// ── TTL index on pending_registrations ────────────────────────────────────
+	// Setting expireAfterSeconds=0 means MongoDB removes the document exactly at
+	// the time stored in expires_at, so no manual cleanup is ever needed.
+	pendingCol := DB.Collection("pending_registrations")
+	ttlIndex := mongo.IndexModel{
+		Keys:    bson.D{{Key: "expires_at", Value: 1}},
+		Options: options.Index().SetExpireAfterSeconds(0),
+	}
+	if _, err := pendingCol.Indexes().CreateOne(ctx, ttlIndex); err != nil {
+		log.Println("[warning] could not create TTL index on pending_registrations:", err)
+	}
 
-	// collection.InsertOne(context.Background(), user)
-	log.Println(" Connected to MongoDB Atlas Cluster")
+	log.Println("Connected to MongoDB Atlas Cluster")
 }
