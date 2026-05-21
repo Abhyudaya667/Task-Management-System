@@ -60,7 +60,22 @@ func (uc *UserController) SearchLabels(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"data": labels})
 }
+func (uc *UserController)GetMyDetails(c *gin.Context){
+	requesterID, ok := getRequesterID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	details, err := uc.usersvc.FindDetailsByID(c.Request.Context(), requesterID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
+	c.JSON(http.StatusOK, gin.H{"data": details})
+	
+
+}
 func (uc *UserController) AddNewLabel(c *gin.Context) {
 	requesterID, ok := getRequesterID(c)
 	if !ok {

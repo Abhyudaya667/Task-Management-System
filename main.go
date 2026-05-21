@@ -62,6 +62,7 @@ func main() {
 
 	// 🔹 Protected auth routes
 	r.POST("/auth/logout", middleware.AuthMiddleware(), controllers.Logout)
+	r.GET("/auth/me",middleware.AuthMiddleware(),userCtrl.GetMyDetails)
 	r.POST("/auth/refresh", controllers.RefreshAccessToken)
 
 	// ── Protected task routes ─────────────────────────────────────────────────
