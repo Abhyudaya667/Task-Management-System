@@ -49,12 +49,7 @@ func NewTaskService(taskRepo repository.TaskRepository, userRepo repository.User
 
 // ─── Private helpers ─────────────────────────────────────────────────────────
 
-func toUserSummary(u *models.User) *dto.UserSummary {
-	if u == nil {
-		return nil
-	}
-	return &dto.UserSummary{ID: u.ID, Name: u.UserName, Email: u.Email}
-}
+
 
 // resolveAssigneeUserName looks up a user by username and returns their ObjectID.
 func (s *taskService) resolveAssigneeUserName(ctx context.Context, username string) (primitive.ObjectID, error) {
