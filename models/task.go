@@ -54,4 +54,9 @@ type Task struct {
 	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
 
 	IsDeleted bool `bson:"is_deleted,omitempty" json:"is_deleted,omitempty"`
+
+	// NotificationsSent tracks which due-date reminder emails have already been
+	// dispatched so the background job never sends the same alert twice.
+	// Possible values: "7d", "3d", "1d"
+	NotificationsSent []string `bson:"notifications_sent,omitempty" json:"notifications_sent,omitempty"`
 }
