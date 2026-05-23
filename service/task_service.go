@@ -22,6 +22,8 @@ var (
 	ErrUnauthorized     = errors.New("you do not have permission to perform this action")
 	ErrInvalidID        = errors.New("invalid id format")
 	ErrAssigneeNotFound = errors.New("no user found with the UserName")
+	ErrDateInPast       = errors.New("start_date and due_date must be in the future")
+	ErrInvalidDateRange = errors.New("due_date must be after start_date")
 )
 
 // ─── Interface ───────────────────────────────────────────────────────────────
@@ -138,6 +140,16 @@ func (s *taskService) logActivity(ctx context.Context, taskID primitive.ObjectID
 
 // CreateTask inserts a new task and logs a "Task created" activity.
 func (s *taskService) CreateTask(ctx context.Context, requesterID primitive.ObjectID, req dto.CreateTaskRequest) (*dto.TaskDetail, error) {
+	// ── Date validation ───────────────────────────────────────────────────────
+	// Both dates must be strictly in the future and due_date must be after start_date.
+	// now := time.Now()
+	// if !req.StartDate.After(now) || !req.DueDate.After(now) {
+	// 	return nil, ErrDateInPast
+	// }
+	if !req.DueDate.After(req.StartDate) &&!req.DueDate.Equal(req.StartDate) {
+		return nil, ErrInvalidDateRange
+	}
+
 	assigneeOID, err := s.resolveAssigneeUserName(ctx, req.AssigneeUserName)
 	if err != nil {
 		return nil, err
@@ -326,6 +338,24 @@ func (s *taskService) UpdateTask(ctx context.Context, requesterID primitive.Obje
 		patch["due_date"] = *req.DueDate
 		if !req.DueDate.Equal(task.DueDate) {
 			changes = append(changes, fmt.Sprintf("Due date changed to '%s'", req.DueDate.Format("2006-01-02")))
+			// Reset sent notifications so reminders re-fire based on the new due date.
+			patch["notifications_sent"] = []string{}
+		}
+	}
+
+	// ── Date ordering validation (update only checks ordering, not future) ────
+	// Resolve the effective start_date and due_date after applying the patch.
+	effectiveStart := task.StartDate
+	if req.StartDate != nil {
+		effectiveStart = *req.StartDate
+	}
+	effectiveDue := task.DueDate
+	if req.DueDate != nil {
+		effectiveDue = *req.DueDate
+	}
+	if req.StartDate != nil || req.DueDate != nil {
+		if !effectiveDue.After(effectiveStart) && !effectiveDue.Equal(effectiveStart) {
+			return nil, ErrInvalidDateRange
 		}
 	}
 

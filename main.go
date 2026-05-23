@@ -32,6 +32,9 @@ func main() {
 	escalationSvc := service.NewEscalationService(taskRepo, activityRepo)
 	escalationSvc.Start(context.Background())
 
+	emailNotifSvc := service.NewEmailNotificationService(taskRepo, userRepo)
+	emailNotifSvc.Start(context.Background())
+
 	taskCtrl := controllers.NewTaskController(taskSvc)
 	userCtrl := controllers.NewUserController(userSvc)
 	// ── Router ────────────────────────────────────────────────────────────────

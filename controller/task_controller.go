@@ -50,6 +50,10 @@ func handleTaskError(c *gin.Context, err error) {
 		// Return 422 Unprocessable Entity — the request was valid JSON but the
 		// referenced assignee email does not match any registered user.
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+	case errors.Is(err, service.ErrDateInPast):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.Is(err, service.ErrInvalidDateRange):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 	}
