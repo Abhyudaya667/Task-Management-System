@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"task-management-system/dto"
 	"task-management-system/models"
@@ -18,12 +19,14 @@ import (
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
 
 var (
-	ErrTaskNotFound     = errors.New("task not found")
-	ErrUnauthorized     = errors.New("you do not have permission to perform this action")
-	ErrInvalidID        = errors.New("invalid id format")
-	ErrAssigneeNotFound = errors.New("no user found with the UserName")
-	ErrDateInPast       = errors.New("start_date and due_date must be in the future")
-	ErrInvalidDateRange = errors.New("due_date must be after start_date")
+	ErrTaskNotFound      = errors.New("task not found")
+	ErrUnauthorized      = errors.New("you do not have permission to perform this action")
+	ErrInvalidID         = errors.New("invalid id format")
+	ErrAssigneeNotFound  = errors.New("no user found with the UserName")
+	ErrDateInPast        = errors.New("start_date and due_date must be in the future")
+	ErrInvalidDateRange  = errors.New("due_date must be after start_date")
+	ErrCommentNotFound   = errors.New("comment not found")
+	ErrCommentForbidden  = errors.New("you are not the author of this comment")
 )
 
 // ─── Interface ───────────────────────────────────────────────────────────────
@@ -35,6 +38,12 @@ type TaskService interface {
 	UpdateTask(ctx context.Context, requesterID primitive.ObjectID, taskID primitive.ObjectID, req dto.UpdateTaskRequest) (*dto.TaskDetail, error)
 	DeleteTask(ctx context.Context, requesterID primitive.ObjectID, taskID primitive.ObjectID) error
 	GetTaskActivities(ctx context.Context, requesterID primitive.ObjectID, taskID primitive.ObjectID) ([]dto.ActivityResponse, error)
+
+	// Comment operations
+	AddComment(ctx context.Context, requesterID primitive.ObjectID, taskID primitive.ObjectID, req dto.CreateCommentRequest) (*dto.CommentResponse, error)
+	EditComment(ctx context.Context, requesterID primitive.ObjectID, taskID primitive.ObjectID, commentID primitive.ObjectID, req dto.UpdateCommentRequest) (*dto.CommentResponse, error)
+	DeleteComment(ctx context.Context, requesterID primitive.ObjectID, taskID primitive.ObjectID, commentID primitive.ObjectID) error
+	GetTaskComments(ctx context.Context, requesterID primitive.ObjectID, taskID primitive.ObjectID) ([]dto.TimelineItem, error)
 }
 
 // ─── Implementation ──────────────────────────────────────────────────────────
@@ -43,15 +52,24 @@ type taskService struct {
 	taskRepo     repository.TaskRepository
 	userRepo     repository.UserRepository
 	activityRepo repository.ActivityRepository
+	commentRepo  repository.CommentInterface
 }
 
-func NewTaskService(taskRepo repository.TaskRepository, userRepo repository.UserRepository, activityRepo repository.ActivityRepository) TaskService {
-	return &taskService{taskRepo: taskRepo, userRepo: userRepo, activityRepo: activityRepo}
+func NewTaskService(
+	taskRepo repository.TaskRepository,
+	userRepo repository.UserRepository,
+	activityRepo repository.ActivityRepository,
+	commentRepo repository.CommentInterface,
+) TaskService {
+	return &taskService{
+		taskRepo:     taskRepo,
+		userRepo:     userRepo,
+		activityRepo: activityRepo,
+		commentRepo:  commentRepo,
+	}
 }
 
 // ─── Private helpers ─────────────────────────────────────────────────────────
-
-
 
 // resolveAssigneeUserName looks up a user by username and returns their ObjectID.
 func (s *taskService) resolveAssigneeUserName(ctx context.Context, username string) (primitive.ObjectID, error) {
@@ -84,6 +102,28 @@ func (s *taskService) hydrateUsers(ctx context.Context, tasks []models.Task) (ma
 		return map[primitive.ObjectID]*models.User{}, nil
 	}
 	return s.userRepo.FindByIDs(ctx, ids)
+}
+
+// hydrateUserIDs batch-fetches users by a plain list of ObjectIDs.
+func (s *taskService) hydrateUserIDs(ctx context.Context, ids []primitive.ObjectID) map[primitive.ObjectID]*models.User {
+	deduped := make([]primitive.ObjectID, 0, len(ids))
+	seen := make(map[primitive.ObjectID]struct{})
+	for _, id := range ids {
+		if !id.IsZero() {
+			if _, ok := seen[id]; !ok {
+				seen[id] = struct{}{}
+				deduped = append(deduped, id)
+			}
+		}
+	}
+	if len(deduped) == 0 {
+		return map[primitive.ObjectID]*models.User{}
+	}
+	usersMap, err := s.userRepo.FindByIDs(ctx, deduped)
+	if err != nil {
+		return map[primitive.ObjectID]*models.User{}
+	}
+	return usersMap
 }
 
 func toTaskSummary(t *models.Task, users map[primitive.ObjectID]*models.User) dto.TaskSummary {
@@ -136,7 +176,7 @@ func (s *taskService) logActivity(ctx context.Context, taskID primitive.ObjectID
 	})
 }
 
-// ─── Service methods ─────────────────────────────────────────────────────────
+// ─── Task service methods ─────────────────────────────────────────────────────
 
 // CreateTask inserts a new task and logs a "Task created" activity.
 func (s *taskService) CreateTask(ctx context.Context, requesterID primitive.ObjectID, req dto.CreateTaskRequest) (*dto.TaskDetail, error) {
@@ -146,7 +186,7 @@ func (s *taskService) CreateTask(ctx context.Context, requesterID primitive.Obje
 	// if !req.StartDate.After(now) || !req.DueDate.After(now) {
 	// 	return nil, ErrDateInPast
 	// }
-	if !req.DueDate.After(req.StartDate) &&!req.DueDate.Equal(req.StartDate) {
+	if !req.DueDate.After(req.StartDate) && !req.DueDate.Equal(req.StartDate) {
 		return nil, ErrInvalidDateRange
 	}
 
@@ -466,5 +506,210 @@ func (s *taskService) GetTaskActivities(ctx context.Context, requesterID primiti
 	return response, nil
 }
 
-// Compile-time interface check
+// ─── Comment service methods ──────────────────────────────────────────────────
+
+// AddComment creates a new user comment on a task.
+// Both the assignee and assigned_by may comment.
+func (s *taskService) AddComment(ctx context.Context, requesterID primitive.ObjectID, taskID primitive.ObjectID, req dto.CreateCommentRequest) (*dto.CommentResponse, error) {
+	// Verify task exists and requester has access
+	task, err := s.taskRepo.FindByID(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrTaskNotFound
+		}
+		return nil, err
+	}
+	if !canAccess(task, requesterID) {
+		return nil, ErrUnauthorized
+	}
+
+	comment := &models.Comment{
+		TaskID:  taskID,
+		UserID:  requesterID,
+		Message: req.Message,
+	}
+	if err := s.commentRepo.CreateComment(ctx, comment); err != nil {
+		return nil, err
+	}
+
+	// Hydrate author for response
+	usersMap := s.hydrateUserIDs(ctx, []primitive.ObjectID{requesterID})
+
+	return toCommentResponse(comment, usersMap), nil
+}
+
+// EditComment updates the message of a comment. Only the original author may edit.
+func (s *taskService) EditComment(ctx context.Context, requesterID primitive.ObjectID, taskID primitive.ObjectID, commentID primitive.ObjectID, req dto.UpdateCommentRequest) (*dto.CommentResponse, error) {
+	// Verify task exists and requester has access
+	task, err := s.taskRepo.FindByID(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrTaskNotFound
+		}
+		return nil, err
+	}
+	if !canAccess(task, requesterID) {
+		return nil, ErrUnauthorized
+	}
+
+	// Fetch the comment to check ownership
+	comment, err := s.commentRepo.FindByID(ctx, commentID)
+	if err != nil {
+		if errors.Is(err, repository.ErrCommentNotFound) {
+			return nil, ErrCommentNotFound
+		}
+		return nil, err
+	}
+
+	// Only the original author may edit
+	if comment.UserID != requesterID {
+		return nil, ErrCommentForbidden
+	}
+
+	// Ensure this comment belongs to the task in the URL
+	if comment.TaskID != taskID {
+		return nil, ErrCommentNotFound
+	}
+
+	if err := s.commentRepo.EditComment(ctx, commentID, req.Message); err != nil {
+		return nil, err
+	}
+
+	// Update local copy to reflect changes for the response
+	comment.Message = req.Message
+	comment.IsEdited = true
+	comment.UpdatedAt = time.Now()
+
+	usersMap := s.hydrateUserIDs(ctx, []primitive.ObjectID{requesterID})
+	return toCommentResponse(comment, usersMap), nil
+}
+
+// DeleteComment removes a comment. Only the original author may delete.
+func (s *taskService) DeleteComment(ctx context.Context, requesterID primitive.ObjectID, taskID primitive.ObjectID, commentID primitive.ObjectID) error {
+	// Verify task exists and requester has access
+	task, err := s.taskRepo.FindByID(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrTaskNotFound
+		}
+		return err
+	}
+	if !canAccess(task, requesterID) {
+		return ErrUnauthorized
+	}
+
+	// Fetch the comment to check ownership
+	comment, err := s.commentRepo.FindByID(ctx, commentID)
+	if err != nil {
+		if errors.Is(err, repository.ErrCommentNotFound) {
+			return ErrCommentNotFound
+		}
+		return err
+	}
+
+	// Only the original author may delete
+	if comment.UserID != requesterID {
+		return ErrCommentForbidden
+	}
+
+	// Ensure this comment belongs to the task in the URL
+	if comment.TaskID != taskID {
+		return ErrCommentNotFound
+	}
+
+	return s.commentRepo.DeleteComment(ctx, commentID)
+}
+
+// GetTaskComments returns a unified, time-ordered timeline of system activity
+// logs (type "system") and user comments (type "comment") for a task.
+// Only the assignee or assigned_by may view.
+func (s *taskService) GetTaskComments(ctx context.Context, requesterID primitive.ObjectID, taskID primitive.ObjectID) ([]dto.TimelineItem, error) {
+	// Verify task exists and requester has access
+	task, err := s.taskRepo.FindByID(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrTaskNotFound
+		}
+		return nil, err
+	}
+	if !canAccess(task, requesterID) {
+		return nil, ErrUnauthorized
+	}
+
+	// Fetch activities and comments concurrently (sequential for simplicity)
+	activities, err := s.activityRepo.FindByTaskID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	comments, err := s.commentRepo.GetByTaskID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Collect all unique user IDs from both sources for a single batch fetch
+	var allUserIDs []primitive.ObjectID
+	for _, a := range activities {
+		allUserIDs = append(allUserIDs, a.UserID)
+	}
+	for _, c := range comments {
+		allUserIDs = append(allUserIDs, c.UserID)
+	}
+	usersMap := s.hydrateUserIDs(ctx, allUserIDs)
+
+	// Build the unified timeline
+	timeline := make([]dto.TimelineItem, 0, len(activities)+len(comments))
+
+	for _, act := range activities {
+		resp := dto.ActivityResponse{
+			ID:        act.ID,
+			TaskID:    act.TaskID,
+			Message:   act.Message,
+			CreatedAt: act.CreatedAt,
+		}
+		if u, ok := usersMap[act.UserID]; ok {
+			resp.User = toUserSummary(u)
+		}
+		timeline = append(timeline, dto.TimelineItem{
+			Type:      "system",
+			CreatedAt: act.CreatedAt,
+			Activity:  &resp,
+		})
+	}
+
+	for i := range comments {
+		c := &comments[i]
+		timeline = append(timeline, dto.TimelineItem{
+			Type:      "comment",
+			CreatedAt: c.CreatedAt,
+			Comment:   toCommentResponse(c, usersMap),
+		})
+	}
+
+	// Sort the unified slice newest → oldest (most recent first)
+	sort.Slice(timeline, func(i, j int) bool {
+		return timeline[i].CreatedAt.After(timeline[j].CreatedAt)
+	})
+
+	return timeline, nil
+}
+
+// ─── Mapping helpers ─────────────────────────────────────────────────────────
+
+// toCommentResponse converts a models.Comment + user map into a dto.CommentResponse.
+func toCommentResponse(c *models.Comment, usersMap map[primitive.ObjectID]*models.User) *dto.CommentResponse {
+	resp := &dto.CommentResponse{
+		ID:        c.ID,
+		TaskID:    c.TaskID,
+		Message:   c.Message,
+		IsEdited:  c.IsEdited,
+		CreatedAt: c.CreatedAt,
+		UpdatedAt: c.UpdatedAt,
+	}
+	if u, ok := usersMap[c.UserID]; ok {
+		resp.User = toUserSummary(u)
+	}
+	return resp
+}
+
+
 var _ TaskService = (*taskService)(nil)

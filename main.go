@@ -25,7 +25,8 @@ func main() {
 	userRepo     := repository.NewUserRepository(config.DB)
 	labelRepo    := repository.NewLabelRepository(config.DB)
 	activityRepo := repository.NewActivityRepository(config.DB)
-	taskSvc := service.NewTaskService(taskRepo, userRepo, activityRepo)
+	commentRepo  := repository.NewCommentRepository(config.DB)
+	taskSvc := service.NewTaskService(taskRepo, userRepo, activityRepo, commentRepo)
 	userSvc := service.NewUserService(userRepo, labelRepo)
 
 	// ── Background services ───────────────────────────────────────────────────
@@ -68,14 +69,6 @@ func main() {
 	r.GET("/auth/me",middleware.AuthMiddleware(),userCtrl.GetMyDetails)
 	r.POST("/auth/refresh", controllers.RefreshAccessToken)
 
-	// ── Protected task routes ─────────────────────────────────────────────────
-	//
-	//  POST   /tasks/      → create a task  (caller = assigned_by)
-	//  GET    /tasks/      → list tasks     (paginated, filters: status/priority/type/search)
-	//  GET    /tasks/:id   → task detail    (assignee or assigned_by only)
-	//  PATCH  /tasks/:id   → partial update (assigned_by only)
-	//  DELETE /tasks/:id   → soft delete    (assigned_by only)
-	//
 	taskRoutes := r.Group("/tasks")
 	taskRoutes.Use(middleware.AuthMiddleware())
 	{
@@ -85,6 +78,12 @@ func main() {
 		taskRoutes.PATCH("/:id", taskCtrl.UpdateTask)
 		taskRoutes.DELETE("/:id", taskCtrl.DeleteTask)
 		taskRoutes.GET("/:id/activities", taskCtrl.GetTaskActivities)
+
+		// Comment routes
+		taskRoutes.POST("/:id/comments", taskCtrl.AddComment)
+		taskRoutes.GET("/:id/comments", taskCtrl.GetTaskComments)
+		taskRoutes.PATCH("/:id/comments/:commentId", taskCtrl.EditComment)
+		taskRoutes.DELETE("/:id/comments/:commentId", taskCtrl.DeleteComment)
 	}
 	r.GET("/users/search", middleware.AuthMiddleware(), userCtrl.SearchUserNamesByText)
 	labelRoutes := r.Group("/labels")

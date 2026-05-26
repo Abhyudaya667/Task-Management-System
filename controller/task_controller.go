@@ -1,25 +1,19 @@
 package controllers
-
 import (
 	"errors"
 	"net/http"
 	"task-management-system/dto"
 	"task-management-system/service"
-
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
-
 type TaskController struct {
 	svc service.TaskService
 }
-
 func NewTaskController(svc service.TaskService) *TaskController {
 	return &TaskController{svc: svc}
 }
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
 // getRequesterID extracts the authenticated user's ObjectID from the Gin context.
 // AuthMiddleware stores "user_id" as a primitive.ObjectID after converting
 // the string from the JWT claim.
@@ -31,12 +25,14 @@ func getRequesterID(c *gin.Context) (primitive.ObjectID, bool) {
 	id, ok := val.(primitive.ObjectID)
 	return id, ok
 }
-
 // parseTaskID parses the ":id" route param as a MongoDB ObjectID hex string.
 func parseTaskID(c *gin.Context) (primitive.ObjectID, error) {
 	return primitive.ObjectIDFromHex(c.Param("id"))
 }
-
+// parseCommentID parses the ":commentId" route param as a MongoDB ObjectID hex string.
+func parseCommentID(c *gin.Context) (primitive.ObjectID, error) {
+	return primitive.ObjectIDFromHex(c.Param("commentId"))
+}
 // handleTaskError maps service sentinel errors to the correct HTTP status codes.
 func handleTaskError(c *gin.Context, err error) {
 	switch {
@@ -54,13 +50,15 @@ func handleTaskError(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, service.ErrInvalidDateRange):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.Is(err, service.ErrCommentNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "comment not found"})
+	case errors.Is(err, service.ErrCommentForbidden):
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 	}
 }
-
 // ─── POST /tasks/ ────────────────────────────────────────────────────────────
-
 // CreateTask creates a new task.
 // The authenticated user becomes assigned_by automatically.
 // assignee_email in the body is resolved to an ObjectID by the service layer.
@@ -73,24 +71,19 @@ func (tc *TaskController) CreateTask(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-
 	var req dto.CreateTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	task, err := tc.svc.CreateTask(c.Request.Context(), requesterID, req)
 	if err != nil {
 		handleTaskError(c, err)
 		return
 	}
-
 	c.JSON(http.StatusCreated, gin.H{"data": task})
 }
-
 // ─── GET /tasks/ ─────────────────────────────────────────────────────────────
-
 // ListTasks returns paginated task summaries for the authenticated user.
 // A task is visible when the caller is either the assignee or assigned_by.
 //
@@ -110,24 +103,19 @@ func (tc *TaskController) ListTasks(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-
 	var params dto.TaskFilterParams
 	if err := c.ShouldBindQuery(&params); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	result, err := tc.svc.ListTasks(c.Request.Context(), requesterID, params)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch tasks"})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
-
 // ─── GET /tasks/:id ──────────────────────────────────────────────────────────
-
 // GetTask returns the full task detail including Description.
 // Only the assignee or assigned_by may view; others receive 403.
 //
@@ -138,24 +126,19 @@ func (tc *TaskController) GetTask(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-
 	taskID, err := parseTaskID(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
 		return
 	}
-
 	task, err := tc.svc.GetTaskByID(c.Request.Context(), requesterID, taskID)
 	if err != nil {
 		handleTaskError(c, err)
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"data": task})
 }
-
 // ─── PATCH /tasks/:id ────────────────────────────────────────────────────────
-
 // UpdateTask applies a partial update to a task.
 // Only assigned_by (the creator) may edit; assignees receive 403.
 // All fields are optional — only provided fields are written to MongoDB.
@@ -169,30 +152,24 @@ func (tc *TaskController) UpdateTask(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-
 	taskID, err := parseTaskID(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
 		return
 	}
-
 	var req dto.UpdateTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	task, err := tc.svc.UpdateTask(c.Request.Context(), requesterID, taskID, req)
 	if err != nil {
 		handleTaskError(c, err)
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"data": task})
 }
-
 // ─── DELETE /tasks/:id ───────────────────────────────────────────────────────
-
 // DeleteTask soft-deletes a task (sets is_deleted = true).
 // Only assigned_by (the creator) may delete; assignees receive 403.
 //
@@ -203,23 +180,18 @@ func (tc *TaskController) DeleteTask(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-
 	taskID, err := parseTaskID(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
 		return
 	}
-
 	if err := tc.svc.DeleteTask(c.Request.Context(), requesterID, taskID); err != nil {
 		handleTaskError(c, err)
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "task deleted successfully"})
 }
-
 // ─── GET /tasks/:id/activities ───────────────────────────────────────────────
-
 // GetTaskActivities returns the full activity history of a task.
 // Only the assignee or assigned_by may view; others receive 403.
 //
@@ -230,18 +202,131 @@ func (tc *TaskController) GetTaskActivities(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-
 	taskID, err := parseTaskID(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
 		return
 	}
-
 	activities, err := tc.svc.GetTaskActivities(c.Request.Context(), requesterID, taskID)
 	if err != nil {
 		handleTaskError(c, err)
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"data": activities})
+}
+// ─── POST /tasks/:id/comments ────────────────────────────────────────────────
+// AddComment adds a user comment to a task.
+// Both the assignee and assigned_by may comment.
+//
+// Request body: dto.CreateCommentRequest  { "message": "..." }
+// Response 201: { "data": dto.CommentResponse }
+func (tc *TaskController) AddComment(c *gin.Context) {
+	requesterID, ok := getRequesterID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	taskID, err := parseTaskID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
+		return
+	}
+	var req dto.CreateCommentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	comment, err := tc.svc.AddComment(c.Request.Context(), requesterID, taskID, req)
+	if err != nil {
+		handleTaskError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"data": comment})
+}
+// ─── GET /tasks/:id/comments ─────────────────────────────────────────────────
+// GetTaskComments returns the unified task timeline — a time-ordered mix of
+// system activity logs (type "system") and user comments (type "comment").
+// Only the assignee or assigned_by may view; others receive 403.
+//
+// Response 200: { "data": []dto.TimelineItem }
+func (tc *TaskController) GetTaskComments(c *gin.Context) {
+	requesterID, ok := getRequesterID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	taskID, err := parseTaskID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
+		return
+	}
+	timeline, err := tc.svc.GetTaskComments(c.Request.Context(), requesterID, taskID)
+	if err != nil {
+		handleTaskError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": timeline})
+}
+// ─── PATCH /tasks/:id/comments/:commentId ────────────────────────────────────
+// EditComment updates the message of a user comment.
+// Only the original author may edit their own comment; others receive 403.
+// System-generated activities cannot be edited (they live in a separate collection).
+//
+// Request body: dto.UpdateCommentRequest  { "message": "..." }
+// Response 200: { "data": dto.CommentResponse }
+func (tc *TaskController) EditComment(c *gin.Context) {
+	requesterID, ok := getRequesterID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	taskID, err := parseTaskID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
+		return
+	}
+	commentID, err := parseCommentID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid comment id"})
+		return
+	}
+	var req dto.UpdateCommentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	comment, err := tc.svc.EditComment(c.Request.Context(), requesterID, taskID, commentID, req)
+	if err != nil {
+		handleTaskError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": comment})
+}
+// ─── DELETE /tasks/:id/comments/:commentId ───────────────────────────────────
+// DeleteComment removes a user comment.
+// Only the original author may delete their own comment; others receive 403.
+// System-generated activities cannot be deleted.
+//
+// Response 200: { "message": "comment deleted successfully" }
+func (tc *TaskController) DeleteComment(c *gin.Context) {
+	requesterID, ok := getRequesterID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	taskID, err := parseTaskID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
+		return
+	}
+	commentID, err := parseCommentID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid comment id"})
+		return
+	}
+	if err := tc.svc.DeleteComment(c.Request.Context(), requesterID, taskID, commentID); err != nil {
+		handleTaskError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "comment deleted successfully"})
 }

@@ -30,6 +30,7 @@ type TaskRepository interface {
 	// MarkNotificationSent atomically appends notifKey to the task's
 	// notifications_sent array so it is never re-sent.
 	MarkNotificationSent(ctx context.Context, taskID primitive.ObjectID, notifKey string) error
+	showAllComments(ctx context.Context,taskid primitive.ObjectID) ([]models.Comment,error)
 }
 
 type taskRepository struct {
@@ -245,4 +246,8 @@ func (r *taskRepository) MarkNotificationSent(ctx context.Context, taskID primit
 	}
 	_, err := r.col.UpdateOne(ctx, filter, update)
 	return err
+}
+
+func (r *taskRepository)showAllComments(ctx context.Context,taskid primitive.ObjectID) ([]models.Comment,error){
+	return nil,nil
 }

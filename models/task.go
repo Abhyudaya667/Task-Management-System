@@ -59,4 +59,5 @@ type Task struct {
 	// dispatched so the background job never sends the same alert twice.
 	// Possible values: "7d", "3d", "1d"
 	NotificationsSent []string `bson:"notifications_sent,omitempty" json:"notifications_sent,omitempty"`
+	Comments []primitive.ObjectID `bson:"comments,omitemptya" json:",omitempty"` 
 }
